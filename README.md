@@ -20,7 +20,7 @@ retargeted to SM8475, with hardware data from
 
 | Check | Result |
 | --- | --- |
-| Kernel patch series | 146/146 apply cleanly to `xnu-8796.141.3` on top of darwin-xnu-build `6639065`, with Apple libpthread/hfs/BearSSL staged (`tools/verify-patches.sh`) |
+| Kernel patch series | 248/248 apply cleanly to `xnu-8796.141.3` on top of darwin-xnu-build `6639065`, with Apple libpthread/hfs/BearSSL staged (`tools/verify-patches.sh`) |
 | Kernel build | `tools/build-local.sh` (Xcode 15.4, no Homebrew/sudo/KDK) links `kernel.development.liuqin`, `MH_EXECUTE/ARM64/PIE`, sha256 `fae1a62d…` |
 | ADT | `tools/mkadt.py` builds liuqin's tree: GIC 0x17100000, vtimer INTID 27, 1800x2880 canvas, 6 GiB high bank; `--dtb` reads the real memory map from the stock DTB |
 | Shim | builds on macOS with clang `--target=aarch64-none-elf` + LLD; `tools/elf2bin.py` proves there are no absolute relocations |

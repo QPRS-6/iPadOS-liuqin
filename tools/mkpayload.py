@@ -194,7 +194,16 @@ def build(kernel_path, adt_path, cmdline, ramdisk_path=None, fwarea_path=None):
     struct.pack_into('<8sII', out, 0, b'LIUQIN01', 1, len(pieces))
     struct.pack_into('<7Q', out, 0x10, virt_base, m['entry'], adt_off, len(adt_blob), kernel_end,
                      PHYS_BASE, MEM_SIZE)
-    cl = cmdline.encode()[:BOOT_LINE_LENGTH - 1]
+    cl = cmdline.encode()
+    if len(cl) > BOOT_LINE_LENGTH - 1:
+        # boot_args.CommandLine is a fixed 608-byte field; losing the tail
+        # silently drops whatever the last arguments were (that is how a
+        # liuqintouchdmaphys=... once became "0x85e0").
+        sys.stderr.write(f"warning: cmdline is {len(cl)} bytes, truncated to "
+                         f"{BOOT_LINE_LENGTH - 1} (dropped {len(cl) - (BOOT_LINE_LENGTH - 1)})\n")
+        sys.stderr.write(f"warning: dropped tail: "
+                         f"{cl[BOOT_LINE_LENGTH - 1:].decode(errors='replace')!r}\n")
+    cl = cl[:BOOT_LINE_LENGTH - 1]
     out[CMDLINE:CMDLINE + len(cl)] = cl
     for i, t in enumerate(seg_table):
         struct.pack_into('<4Q', out, SEG_TABLE + 32 * i, *t)

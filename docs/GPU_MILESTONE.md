@@ -173,17 +173,29 @@ LLD=/tmp/ld.lld shim/build.sh out/payload.bin       # zig: `zig ld.lld` wrapped 
 
 ## Still open
 
-- The system still stops before SpringBoard: userspace has no Metal device.
+- The system reaches SpringBoard/backboardd, but the UI is software-rendered: there is
+  no `IOAcceleratorES`/Metal device (`gpu1.txt`: 358 x `IOAcceleratorES -> 0 found`).
 - Remaining path (unixnu + hackios-xnu-userland, cloned in ~/liuqin-root/refs):
-  1. Kernel: the UniXNU `NativeAdreno` service and its user client are in the kernel
-     and published; what is missing is the live GPU behind them (CP started, SMMU
-     contexts programmed, boards powered) - the ladder in `bsd/dev/liuqin_adreno.c`
-     already does all of that from `liuqinadreno=1..22`, so the next kernel step is
-     handing the ladder's state to the service instead of the current discovery-only
-     publish.
+  1. Kernel: the live GPU is there and the `NativeAdreno` user client is published
+     (hfi25/26 and `gpu1.txt`: ColdStart, CP, `CP_MEM_WRITE` self test). The missing
+     piece is the discovery-facing accelerator: `AGXAccelerator` is compiled but never
+     instantiated/published, so `IOServiceMatching("IOAcceleratorES")` finds nothing.
   2. Userspace: cross-build Mesa (tools/mk-mesa.sh of hackios-xnu-userland; needs
      meson/ninja/bison/flex, their xnu-clang, iPhoneOS SDK) for arm64 iOS, Turnip
      (freedreno) + the Air/Metal frontend; plus `drivers/NativeMetal` (ObjC++, Metal
      framework) and the injection libraries (`userland/src/inject*.c`).
   3. Hook backboardd/SpringBoard so they discover the device (their `publish`/`clients`
      plugin data, sandbox grant patch).
+
+## 2026-10-28 status correction
+
+The kernel half is no longer missing: hfi25/26 (2026-10-24) reached `GPU ready`
+and the `CP_MEM_WRITE` self test, and `NativeAdrenoUserClient` is published.
+From touch167 to touch183 the GPU was actually stopped earlier, by a
+one-character typo in the boot line (`sheng-gpu-cmdb-version` instead of
+`sheng-gpu-cmddb-version`), so `ShengGmuColdStart` never ran;
+`shim-boot-gpu1-cmddb.img` fixes that with no kernel change; `gpu1.txt`
+(2026-10-28) reconfirmed the whole kernel chain on liuqin (`ColdStart ack=0xde`,
+`GPU context status 0x0`, `CP self-test wrote=0x600dc0de`, `GPU ready` at
+76.3 s).  What remains is the accelerator publication and the userspace Metal
+path (items 1-3 above), not the CP bring-up.

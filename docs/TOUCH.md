@@ -71,6 +71,14 @@ polled, FIFO-only driver needs:
 Because the DT leaves the bus at the default speed and the controller is not
 performance-critical here, the driver can run at 1-2 MHz, polled, without DMA.
 
+**Except that this tablet's SE4 has no CPU FIFO.**  `GENI_IF_DISABLE_RO` (0x64)
+bit 0 (`FIFO_IF_DISABLE`) reads 1 here, so `spi_geni_init()` would fall through to
+GPI DMA, and any FIFO-mode transfer fails with `M_CMD_OVERRUN` while a CS-only
+command still completes.  Data therefore has to move through a DMA engine:
+SE-DMA (`SE_GENI_DMA_MODE_EN`, `SE_DMA_TX/RX_PTR_L/H`, `_LEN`, `_ATTR`) when the
+SE's own engine is usable, GPI DMA otherwise.  SE-DMA needs physically contiguous
+buffers and explicit cache maintenance, because the engine is not cache coherent.
+
 ## Novatek protocol
 
 `tools/touch-novatek/` already has the page/address framing and a 10-finger,
@@ -78,6 +86,28 @@ performance-critical here, the driver can run at 1-2 MHz, polled, without DMA.
 tablet shares the framing (`0xff` page prefix, `addr >> 15`, `addr >> 7`) and the
 trim-id readout but the report format must be checked against a bus dump from
 this unit before being trusted; `README.md` there says the same.
+
+### NT36532 SPI frame format
+
+This is what `liuqintouch>=3` decodes, from the vendor NT36xxx driver (the
+mainline `nt36xxx` submission has the same parser) rather than from the
+NT36523 harness in `tools/touch-novatek/`, which reads its frame one byte off:
+
+- **SPI access**: `0xff, addr >> 15, addr >> 7` latches the page; then
+  `addr & 0x7f` (bit 7 clear = read) followed by `len + 2` bytes, of which the
+  first returned byte is a dummy and the data starts at byte 2.  Writes use the
+  same address byte with bit 7 set.
+- **Chip id**: six bytes at `0x3f004`; the last three encode the model
+  (`0x32 0x65 0x03` = "3265" = NT36532, `0x23 0x65 0x03` = NT36523).
+- **FWINFO**: 16 bytes at `0x2fe78` (`0x2fe00 | 0x78`): `[0]` fw version,
+  `[1]` its complement (sum must be `0xff`), `[2]`/`[3]` x/y sensor counts,
+  `[4:5]`/`[6:7]` big-endian x/y maximum, `[9]` max touches, `[10]` max
+  buttons, `[11]` IRQ type, `[12]` wake type, `[14]` chip id.
+- **Point frame**: 65 bytes at `0x2fe00`.  Byte 0 is the event byte, then ten
+  6-byte records — `[0] = id << 3 | event` (event 1 = enter, 2 = move,
+  3 = release), `[1]`/`[2]` x/y high bytes, `[3] = x low nibble << 4 |
+  y low nibble`, `[4]` weight, `[5]` pressure — then a key byte and the high
+  pressure bits for the first two fingers.  Fingers are 1-based.
 
 The init sequence a driver needs, from the mainline `novatek-nvt-ts` driver in
 this same kernel tree:
@@ -102,10 +132,13 @@ already in place (`liuqin_hid_key(0/1/2, down)` in
    TLMM and GCC, log the SE4 branch/RCG state, the QUP core clock state and the
    pin mux of gpio16..19/21.  This tells us whether ABL already clocked the SE
    and muxed the pins, and validates the base addresses before any write.
+   *Done and verified on the tablet (0152).*
 2. **Chip-id read**: enable the missing clocks, mux the pins, program the SE as a
    polled SPI master at ~1 MHz and read the Novatek trim id.  One log line is
-   enough to prove the bus.
+   enough to prove the bus.  *Clocks and pins verified (0153/0154); the SPI
+   master and the id read are written (0155) but have not run on the tablet.*
 3. **Reports**: parse point frames from the same FIFO path and call
    `liuqin_hid_touch(finger, down, x, y)`; map the 1800x2880 panel coordinates
-   (the lock screen is drawn at 1800x2880 with scale 2).
+   (the lock screen is drawn at 1800x2880 with scale 2).  *Written (0155),
+   not yet booted.*
 4. **Buttons** after that, over SPMI.

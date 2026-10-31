@@ -1653,3 +1653,81 @@ No crash reports at all.
 `shim-boot-sample-lsd.img` (sha256 `26ca9cad…`) boots muted with
 `liuqinsample=SpringBoard,backboardd,lsd`, so the next log also carries lsd's
 stacks and shows what it is waiting on.
+
+### 2026-10-28: the GPU was gated by a one-character boot-arg typo
+
+The touch-era 567-byte boot line spelled the command-DB argument
+`sheng-gpu-cmdb-version=1`, while `NativeAdrenoService.cpp` parses
+`sheng-gpu-cmddb-version`.  Every boot since touch167 therefore logged
+
+```
+NativeAdreno: GMU firmware validated (57272 bytes)
+NativeAdreno: GMU boot needs sheng-gpu-cmddb-version
+NativeAdreno: publishing the GPU node without a started CP
+```
+
+and `ShengGmuColdStart` never ran - the GMU/CP code itself was fine, the
+opt-in gate was simply never opened.  The later steps (ColdStart, GPU context,
+CP, client) had been verified on hfi26 with the correct spelling.
+
+The fix is one character in the payload cmdline (`cmdb` -> `cmddb`); the line
+is now 568 bytes, still inside the 608-byte `cmdline` field (and the kernel's
+arm64 `BOOT_LINE_LENGTH` is 608).  The kernel is unchanged: touch183's
+`a291772a…`, with the keys driver still default-on and touch at its 181
+behaviour.
+
+| artifact | bytes | sha256 |
+| --- | --- | --- |
+| `shim/out/payload-gpu1-cmddb.bin` | 25,440,560 | `3e4c79f6…` |
+| `shim/out/shim-boot-gpu1-cmddb.img` | 32,018,432 | `bd44bcf3…` |
+
+The new payload is byte-identical to the touch183 payload before offset
+`0x048` and after `0x2a8` (the fixed 608-byte cmdline field); only the
+cmdline bytes differ.  Expected log after flashing: no
+`GMU boot needs ...` line, then `ColdStart status=0 fw_ready=1
+hfi_ready=1`, and the hfi26 sequence up to
+`CP self-test ... wrote=0x600dc0de`.  That restores the kernel-side GPU; the
+UI still needs the userspace Metal path described in `GPU_MILESTONE.md`.
+
+### gpu1.txt: the full kernel bring-up is confirmed (2026-10-28)
+
+The flashed image (`bd44bcf3…`) produced the complete hfi26 sequence on
+liuqin:
+
+```
+NativeAdreno: ColdStart status=0 mode=intr fw_ready=1 hfi_ready=1 stage=8 ... ack=0xde elapsed=18993 us
+NativeAdreno: OOB GPU_SET acked (intr=0x80000000)
+NativeAdreno: GX power up (0x0)
+NativeAdreno: GPU context status 0x0 step 7 (bank 2 asid 2 slots 1/2 sids 0/1)
+NativeAdreno: CP SQE alive rbbm=0x1 hw_fault=0x0 rptr=0 ...
+NativeAdreno: CP started fence=2
+NativeAdreno: CP self-test ... wrote=0x600dc0de (want 0x600dc0de)
+NativeAdreno: GPU ready, publishing service
+LIUQIN BOOT: adreno services started at 76.336 s
+```
+
+The interrupt mask still drops only bit 28 (`0x13d283c2` vs `0x33d283c2`) and
+fences are polled, exactly as on hfi26; there is no GPU fault or panic.
+
+The system still has no Metal device.  backboardd and SpringBoard run
+`IOServiceMatching("IOAcceleratorES")` 358 times in this log and every one
+returns `-> 0 found` (`AGXAccelerator -> none`).  What the kernel publishes is
+`NativeAdrenoGpuService`, the custom `NativeAdrenoABI` endpoint used by
+`tools/liuqin-gpu-test.cpp`; it is not the `IOAcceleratorES` +
+`MetalPluginName` service the original Metal discovery looks for.  The
+`AGXAccelerator` class and `NativeAdrenoPublish.cpp` in the tree are the sheng
+stack, but nothing instantiates them - `native_adreno_publish()` has no
+caller - and the `NativeAdrenoMetal.bundle` plugin is not installed.  Hence
+CoreAnimation still renders in software.
+
+Two next steps, in increasing size:
+
+1. userspace ABI test: the root already carries `/usr/libexec/liuqin-gpu-test`
+   (sha256 `a3a46027…`) but no LaunchDaemon; install the job and add
+   `sheng-gpu-gputest=1` to the boot line.  Expected
+   `gputest: target[0x40]=0x600dc0de want 0x600dc0de -> PASS`.  No kernel
+   change.
+2. native Metal: publish `AGXAccelerator` (from `NativeAdrenoAccelerator.cpp`)
+   the way `kits/sheng/GpuPowerProbe.cpp` does, then build/install
+   `NativeAdrenoMetal.bundle` + `NativeBridgeMetalFrontend` + Turnip.  That is
+   the path to GPU compositing, and it is a multi-step port, not one image.

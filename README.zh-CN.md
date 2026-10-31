@@ -13,7 +13,7 @@
 
 | 项目 | 结果 |
 | --- | --- |
-| 内核补丁系列 | 146 个补丁按序应用到 `xnu-8796.141.3`（macOS 13.5 对应的 tag），叠加 darwin-xnu-build 的基础补丁与 Apple libpthread / hfs / BearSSL 后，**0 失败** |
+| 内核补丁系列 | 248 个补丁按序应用到 `xnu-8796.141.3`（macOS 13.5 对应的 tag），叠加 darwin-xnu-build 的基础补丁与 Apple libpthread / hfs / BearSSL 后，**0 失败** |
 | ADT 生成 | `tools/mkadt.py` 生成 1800×2880、GIC 0x17100000、vtimer INTID 27、6 GiB 高端内存的 liuqin 设备树；`--dtb` 能从原厂 DTB 自动取内存/GIC/定时器/帧缓冲 |
 | 引导 shim | 用 clang `--target=aarch64-none-elf` + LLD 在 macOS 上编译链接通过，`tools/elf2bin.py` 检查无绝对重定位 |
 | boot.img | `tools/mkbootimg.py` 打出 v2 头（含 DTB），`tools/unpack_bootv2.py` 可回读 |

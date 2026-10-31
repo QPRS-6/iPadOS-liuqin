@@ -50,7 +50,11 @@ KERNEL_CONFIG=RELEASE tools/build-local.sh
 之后打包：
 
 ```sh
-python3 tools/mkadt.py shim/out/liuqin.adt
+# The DRAM bank is NOT the build default: liuqin's kernel-managed RAM lives at
+# 0x840000000, and mkpayload takes the kernel's load address from the ADT.  With
+# the default (0x100000000) the shim panics in `ldr-copy` (STAGE ldr-copy,
+# FAR ~0x101004000) because it copies the kernel into a hole.
+python3 tools/mkadt.py shim/out/liuqin.adt --dram-base 0x840000000 --dram-size 0x140000000
 python3 tools/mkpayload.py "$WORK/fakeroot/System/Library/Kernels/kernel.development.liuqin" \
     shim/out/liuqin.adt shim/out/payload.bin --cmdline 'debug=0xc serial=3 cpus=1 ...'
 shim/build.sh shim/out/payload.bin     # DTB=... 指向真机 DTB；macOS 上 LLD=/path/to/ld.lld
